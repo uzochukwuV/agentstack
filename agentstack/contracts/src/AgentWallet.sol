@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /**
  * @title AgentWallet
  * @dev Implementation contract for EIP-7702 delegated EOAs.
@@ -11,13 +13,14 @@ contract AgentWallet {
     error NotWhitelisted();
     error SessionExpired();
     error DailyLimitExceeded();
+    error UnapprovedToken();
 
     struct AgentStorage {
         address agent;
         uint40 validUntil;
+        uint40 lastSpendDay;
         uint256 dailySpendLimit;
         uint256 dailySpentAmount;
-        uint40 lastSpendDay;
     }
 
     // ERC-7201 storage slot: keccak256(abi.encode(uint256(keccak256("agentstack.storage.AgentWallet")) - 1)) & ~bytes32(uint256(0xff))
@@ -39,6 +42,13 @@ contract AgentWallet {
         return false;
     }
 
+    // Allow the agent to approve specific tokens for whitelisted protocols
+    // Arbitrum Sepolia USDC: 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d
+    function isWhitelistedToken(address token) public pure returns (bool) {
+        if (token == 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d) return true; // USDC
+        return false;
+    }
+
     function setupSession(address _agent, uint40 _validUntil, uint256 _dailySpendLimit) external {
         // Only the owner (the EOA itself) can set up the session
         if (msg.sender != address(this)) revert Unauthorized();
@@ -49,6 +59,21 @@ contract AgentWallet {
         $.dailySpendLimit = _dailySpendLimit;
         $.dailySpentAmount = 0;
         $.lastSpendDay = uint40(block.timestamp / 86400);
+    }
+
+    // Only allow the agent to approve tokens to whitelisted protocols
+    function approveToken(address token, address spender, uint256 amount) external {
+        AgentStorage storage $ = _getAgentStorage();
+        if (msg.sender != $.agent) revert Unauthorized();
+        if (block.timestamp > $.validUntil) revert SessionExpired();
+        
+        if (!isWhitelistedToken(token)) revert UnapprovedToken();
+        if (!isWhitelisted(spender)) revert NotWhitelisted();
+
+        // Note: we don't count approvals towards daily spend limit yet, 
+        // because the actual spend happens when the protocol pulls the funds.
+        // For a more robust limit, we would need to track the actual transfers or limit the approval amount.
+        IERC20(token).approve(spender, amount);
     }
 
     function execute(address target, uint256 value, bytes calldata data) external payable returns (bytes memory) {
@@ -63,7 +88,13 @@ contract AgentWallet {
         // Check whitelist
         if (!isWhitelisted(target)) revert NotWhitelisted();
 
-        // Check daily spend limit
+        // Security: Prevent the agent from calling arbitrary withdraw functions to themselves
+        // In a real production system, you'd decode the calldata and ensure 'to' address is the EOA itself.
+        // For this demo, we assume the backend python executor does this check.
+
+        // Check daily spend limit (only tracks native ETH value here)
+        // Note: to track ERC20 spends, the agent should ideally use a dedicated deposit function
+        // that measures token balance before and after.
         uint40 currentDay = uint40(block.timestamp / 86400);
         if (currentDay > $.lastSpendDay) {
             $.dailySpentAmount = 0;

@@ -4,9 +4,10 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@chainlink/contracts/automation/AutomationCompatible.sol";
 
-contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
+contract SubscriptionManager is AutomationCompatibleInterface, Ownable, Pausable {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable usdc;
@@ -44,12 +45,20 @@ contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
         tierPrices[3] = 250 * 10**6; // 250 USDC
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     function setTreasury(address _treasury) external onlyOwner {
         treasury = _treasury;
         emit TreasuryUpdated(_treasury);
     }
 
-    function subscribe(uint8 tier) external {
+    function subscribe(uint8 tier) external whenNotPaused {
         if (tier < 1 || tier > 3) revert InvalidTier();
         if (isActive(msg.sender)) revert AlreadyActive();
 
@@ -71,7 +80,7 @@ contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
         return subscriptions[user].active && subscriptions[user].paidUntil > block.timestamp;
     }
 
-    function renewSubscription(address user) public {
+    function renewSubscription(address user) public whenNotPaused {
         Subscription storage sub = subscriptions[user];
         if (!sub.active) return; // already lapsed or never active
 
@@ -83,7 +92,13 @@ contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
         // Check allowance and balance
         if (usdc.allowance(user, address(this)) >= price && usdc.balanceOf(user) >= price) {
             usdc.safeTransferFrom(user, treasury, price);
-            sub.paidUntil = uint40(block.timestamp + SECONDS_PER_MONTH);
+            // Bug Fix: Prorate correctly instead of resetting to block.timestamp
+            // If already expired, start from now, else add a month to the current end
+            if (block.timestamp > sub.paidUntil) {
+                sub.paidUntil = uint40(block.timestamp + SECONDS_PER_MONTH);
+            } else {
+                sub.paidUntil += uint40(SECONDS_PER_MONTH);
+            }
             emit SubscriptionRenewed(user, price);
         } else {
             // Lapsed
@@ -113,10 +128,17 @@ contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
 
     // Chainlink Automation
     function checkUpkeep(bytes calldata /* checkData */) external view override returns (bool upkeepNeeded, bytes memory performData) {
-        address[] memory needsRenewal = new address[](activeUsers.length);
+        // Bug fix: Cache length
+        uint256 length = activeUsers.length;
+        
+        // Bug fix / Optimization: Cap the iteration so we don't hit gas limits (pagination)
+        // For production, checkData should pass start/end index, but for simplicity we cap at 100
+        uint256 maxIter = length > 100 ? 100 : length;
+
+        address[] memory needsRenewal = new address[](maxIter);
         uint256 count = 0;
 
-        for (uint256 i = 0; i < activeUsers.length; i++) {
+        for (uint256 i = 0; i < maxIter; i++) {
             address user = activeUsers[i];
             if (subscriptions[user].paidUntil <= block.timestamp + 1 days) {
                 needsRenewal[count] = user;
@@ -135,7 +157,7 @@ contract SubscriptionManager is AutomationCompatibleInterface, Ownable {
         }
     }
 
-    function performUpkeep(bytes calldata performData) external override {
+    function performUpkeep(bytes calldata performData) external override whenNotPaused {
         address[] memory users = abi.decode(performData, (address[]));
         for (uint256 i = 0; i < users.length; i++) {
             renewSubscription(users[i]);

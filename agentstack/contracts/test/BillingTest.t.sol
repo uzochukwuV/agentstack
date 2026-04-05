@@ -34,13 +34,16 @@ contract BillingTest is Test {
 
         // Setup user with USDC and allowance
         usdc.mint(user, 10000 * 10**18);
-        vm.prank(user);
+        
+        vm.startPrank(user);
+        // Approve both the SubscriptionManager and the SkillRegistry to pull USDC
         usdc.approve(address(subManager), type(uint256).max);
+        usdc.approve(address(registry), type(uint256).max);
+        vm.stopPrank();
 
         usdc.mint(nonPayer, 10000 * 10**18); // no allowance
     }
 
-    // 1. User with USDC balance and approved allowance subscribes at tier 2
     function test_1_SubscribeTier2() public {
         vm.prank(user);
         subManager.subscribe(2);
@@ -52,14 +55,12 @@ contract BillingTest is Test {
         assertTrue(paidUntil > block.timestamp);
     }
 
-    // 2. User without allowance tries to subscribe — reverts cleanly
     function test_2_SubscribeWithoutAllowanceReverts() public {
         vm.prank(nonPayer);
-        vm.expectRevert(); // SafeERC20 revert
+        vm.expectRevert(); 
         subManager.subscribe(2);
     }
 
-    // 3. isActive(user) returns true after subscribing and false after vm.warp(31 days)
     function test_3_IsActiveAfterWarp() public {
         vm.prank(user);
         subManager.subscribe(2);
@@ -70,12 +71,11 @@ contract BillingTest is Test {
         assertFalse(subManager.isActive(user));
     }
 
-    // 4. renewSubscription(user) via the Chainlink Automation forwarder address extends paidUntil and pulls USDC
     function test_4_RenewSubscriptionPullsUSDC() public {
         vm.prank(user);
         subManager.subscribe(2);
 
-        vm.warp(block.timestamp + 31 days - 1 hours); // Just before expiry
+        vm.warp(block.timestamp + 31 days - 1 hours); 
 
         uint256 treasuryBalBefore = usdc.balanceOf(treasury);
 
@@ -90,12 +90,10 @@ contract BillingTest is Test {
         assertTrue(paidUntil > block.timestamp);
     }
 
-    // 5. renewSubscription on a user with exhausted allowance sets active = false and emits SubscriptionLapsed
     function test_5_RenewWithExhaustedAllowance() public {
         vm.prank(user);
         subManager.subscribe(2);
 
-        // Revoke allowance
         vm.prank(user);
         usdc.approve(address(subManager), 0);
 
@@ -112,22 +110,16 @@ contract BillingTest is Test {
         assertFalse(active);
     }
 
-    // 6. unlockSkill(skillId=3) from a Pro subscriber stores the unlock and transfers USDC
-    // (Note: The spec says unlockSkill transfers USDC, but usually skills are gated by tier.
-    // Issue 3 says: "unlockSkill(skillId=3) from a Pro subscriber stores the unlock and transfers USDC"
-    // Wait, the spec implies skills might cost additional USDC, or they are just unlocked based on tier.
-    // Let's implement an additional transfer if needed, or if it just checks tier.)
     function test_6_UnlockSkillPro() public {
         vm.prank(user);
-        subManager.subscribe(2); // Pro tier
+        subManager.subscribe(2); 
 
         vm.prank(user);
-        registry.unlockSkill(3); // GMX V2 perpetuals (minTier=2)
+        registry.unlockSkill(3); 
 
         assertTrue(registry.hasSkill(user, 3));
     }
 
-    // 7. hasSkill(user, 3) returns true immediately and false after vm.warp(31 days)
     function test_7_HasSkillAfterWarp() public {
         vm.prank(user);
         subManager.subscribe(2);
@@ -141,7 +133,6 @@ contract BillingTest is Test {
         assertFalse(registry.hasSkill(user, 3));
     }
 
-    // 8. unlockSkill with an unknown skillId reverts
     function test_8_UnlockUnknownSkillReverts() public {
         vm.prank(user);
         subManager.subscribe(2);
@@ -151,7 +142,6 @@ contract BillingTest is Test {
         registry.unlockSkill(99);
     }
 
-    // Fuzz test subscribe(tier) with random tier values confirms only 1, 2, 3 succeed
     function testFuzz_SubscribeRandomTier(uint8 tier) public {
         vm.assume(tier != 1 && tier != 2 && tier != 3);
         vm.prank(user);
