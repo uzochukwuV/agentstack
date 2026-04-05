@@ -3,7 +3,6 @@ from typing import Dict, Any, List, Literal
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models.chat_models import BaseChatModel
 import logging
 import time
@@ -28,7 +27,6 @@ RULES:
 
 def get_llm() -> BaseChatModel:
     openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
-    gemini_api_key = os.getenv("GOOGLE_API_KEY")
     
     primary_llm = ChatOpenAI(
         model="qwen/qwen3.6-plus-04-02:free", 
@@ -37,15 +35,7 @@ def get_llm() -> BaseChatModel:
         default_headers={"HTTP-Referer": "https://localhost:8000"}
     )
     
-    # We will use the Google Gen AI chat model directly but through the generic ChatOpenAI interface 
-    # to hit the exact gemini-3-flash-preview endpoint if langchain doesn't support it directly.
-    # Actually, we can just use the standard gemini-1.5-flash with default client options.
-    fallback_llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", 
-        google_api_key=gemini_api_key
-    )
-    
-    return primary_llm.with_fallbacks([fallback_llm])
+    return primary_llm
 
 def create_agent_graph(llm: BaseChatModel, tools: List[Any], get_positions_func):
     
@@ -79,22 +69,9 @@ def create_agent_graph(llm: BaseChatModel, tools: List[Any], get_positions_func)
             llm_with_tools = llm
             
         try:
+            # Small sleep to mitigate OpenRouter strict rate limits on free tier
             time.sleep(2)
-            try:
-                response = llm_with_tools.invoke([SystemMessage(content=prompt)] + state.get("messages", []))
-            except Exception as primary_e:
-                logger.warning(f"Primary LLM failed: {primary_e}. Attempting manual fallback.")
-                if hasattr(llm, "fallbacks") and llm.fallbacks:
-                    fallback = llm.fallbacks[0]
-                    if tools:
-                        try:
-                            fallback = fallback.bind_tools(tools)
-                        except Exception:
-                            pass
-                    response = fallback.invoke([SystemMessage(content=prompt)] + state.get("messages", []))
-                else:
-                    raise primary_e
-                    
+            response = llm_with_tools.invoke([SystemMessage(content=prompt)] + state.get("messages", []))
         except Exception as e:
             logger.error(f"LLM Invocation Failed: {e}")
             return {"error": f"llm_error: {str(e)}"}
