@@ -11,6 +11,7 @@ We are building a pluggable skill architecture, allowing our agents to progressi
 - **Phase 2: GMX V2 Perpetuals** - Advanced delta-neutral strategies, automated funding rate farming, and dynamic leverage management on GMX. Our agent will actively manage perp positions based on real-time market data.
 - **Phase 3: Uniswap V4 & Pendle** - Automated concentrated liquidity (LP) position rebalancing, hook-driven trading, and yield token (PT/YT) arbitrage on Pendle.
 - **Phase 4: Multi-Strategy Rebalancing** - Cross-protocol yield routing and complex multi-leg execution, dynamically moving capital to wherever the risk-adjusted yield is highest.
+- **Phase 5: Multi-Chain Expansion & Arbitrage** - Scaling beyond Arbitrum to other high-activity networks (like Base, Optimism, and Polygon). This phase will introduce cross-chain arbitrage and CEX (Centralized Exchange) arbitrage, enabling agents to autonomously capture price inefficiencies and funding rate deltas across fragmented Web2 and Web3 markets.
 
 ## AI Signals for Higher Subscriptions
 We align our platform's capabilities with user needs through a tiered, on-chain USDC subscription model. Higher tiers unlock deeper AI insights and more complex execution logic:
