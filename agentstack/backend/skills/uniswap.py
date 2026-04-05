@@ -10,7 +10,7 @@ USDC = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"
 WETH = "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73"
 
 UNISWAP_ROUTER_ABI = json.loads('''[
-    {"inputs":[{"components":[{"name":"path","type":"bytes"},{"name":"recipient","type":"address"},{"name":"deadline","type":"uint256"},{"name":"amountIn","type":"uint256"},{"name":"amountOutMinimum","type":"uint256"}],"name":"params","type":"tuple"}],"name":"exactInput","outputs":[{"name":"amountOut","type":"uint256"}],"stateMutability":"payable","type":"function"}
+    {"inputs":[{"components":[{"name":"path","type":"bytes"},{"name":"recipient","type":"address"},{"name":"amountIn","type":"uint256"},{"name":"amountOutMinimum","type":"uint256"}],"name":"params","type":"tuple"}],"name":"exactInput","outputs":[{"name":"amountOut","type":"uint256"}],"stateMutability":"payable","type":"function"}
 ]''')
 
 class UniswapV3Skill(BaseSkill):
@@ -48,7 +48,6 @@ class UniswapV3Skill(BaseSkill):
                 params = (
                     path,
                     user_address,
-                    deadline,
                     amount_in_raw,
                     0 
                 )
